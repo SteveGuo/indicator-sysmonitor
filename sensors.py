@@ -8,7 +8,6 @@
 # Original Homepage: http://launchpad.net/indicator-sysmonitor
 # Fork Homepage: https://github.com/fossfreedom/indicator-sysmonitor
 # License: GPL v3
-#
 
 import json
 import time
@@ -23,9 +22,9 @@ from gettext import gettext as _
 
 import psutil as ps
 
-
 B_UNITS = ['', 'KB', 'MB', 'GB', 'TB']
 cpu_load = []
+
 
 def bytes_to_human(bytes_):
     unit = 0
@@ -53,16 +52,15 @@ class SensorManager(object):
     class __impl:
 
         settings = {
-        'custom_text': 'cpu: {cpu} mem: {mem}',
-        'interval': 2,
-        'on_startup': False,
-        'sensors': {
-            # 'name' => (desc, cmd)
+            'custom_text': 'cpu: {cpu} mem: {mem}',
+            'interval': 2,
+            'on_startup': False,
+            'sensors': {
+                # 'name' => (desc, cmd)
             }
         }
 
         supported_sensors = None
-
 
         def __init__(self):
             self.sensor_instances = [CPUSensor(),
@@ -70,15 +68,17 @@ class SensorManager(object):
                                      NetSensor(),
                                      BatSensor(),
                                      FSSensor(),
-                                     SwapSensor()]
+                                     SwapSensor(),
+                                     UporDownSensor(),
+                                     PublicIPSensor(),
+                                     CPUTemp()]
 
             for sensor in self.sensor_instances:
                 self.settings['sensors'][sensor.name] = (sensor.desc, sensor.cmd)
 
-            #self.update_regex()
             self._last_net_usage = [0, 0]  # (up, down)
 
-        #@staticmethod
+        # @staticmethod
         @classmethod
         def update_regex(self, names=None):
             if names is None:
@@ -86,7 +86,7 @@ class SensorManager(object):
 
             reg = '|'.join(names)
             reg = "\A({})\Z".format(reg)
-            #global supported_sensors
+            # global supported_sensors
             self.supported_sensors = re.compile("{}".format(reg))
 
         def get(self, name):
@@ -101,12 +101,12 @@ class SensorManager(object):
 
             return None
 
-        #@staticmethod
+        # @staticmethod
         def exists(self, name):
             """Checks if the sensor name exists"""
             return bool(self.supported_sensors.match(name))
 
-        #@staticmethod
+        # @staticmethod
         def check(self, sensor_string):
             for sensor in self.sensor_instances:
                 sensor.check(sensor_string)
@@ -168,7 +168,10 @@ class SensorManager(object):
                 if cfg['on_startup'] is not None:
                     self.settings['on_startup'] = cfg['on_startup']
                 if cfg['sensors'] is not None:
-                    self.settings['sensors'] = cfg['sensors']
+                    # need to merge our current list of sensors with what was previously saved
+                    newcopy = self.settings['sensors']
+                    newcopy.update(cfg['sensors'])
+                    self.settings['sensors'] = newcopy
 
                 self.update_regex()
 
@@ -255,9 +258,10 @@ class SensorManager(object):
             from preferences import Preferences
 
             # We call this only once per update
-            global cpu_load = ps.cpu_percent(interval = 0, percpu = True)
+            global cpu_load
+            cpu_load = ps.cpu_percent(interval=0, percpu=True)
 
-            #print (self.settings["custom_text"]) custom_text is the full visible string seen in Preferences edit field
+            # print (self.settings["custom_text"]) custom_text is the full visible string seen in Preferences edit field
             for sensor in Preferences.sensors_regex.findall(
                     self.settings["custom_text"]):
 
@@ -270,21 +274,9 @@ class SensorManager(object):
                         res[sensor] = value
 
                 else:  # custom sensor
-                    res[sensor] = self._exec(self.settings["sensors"][sensor][1])
+                    res[sensor] = BaseSensor.script_exec(self.settings["sensors"][sensor][1])
 
             return res
-
-        def _exec(self, command):
-            """Execute a custom command."""
-            try:
-                output = subprocess.Popen(command, stdout=subprocess.PIPE,
-                                          shell=True).communicate()[0].strip()
-            except:
-                output = _("Error")
-                logging.error(_("Error running: {}").format(command))
-
-            return output.decode('utf-8') if output else _("(no output)")
-
 
     def __init__(self):
 
@@ -293,7 +285,6 @@ class SensorManager(object):
 
         # Store instance reference as the only member in the handle
         self.__dict__['_SensorManager__instance'] = SensorManager._instance
-
 
     def __getattr__(self, attr):
         """ Delegate access to implementation """
@@ -323,6 +314,19 @@ class BaseSensor(object):
     def get_value(self, sensor_data):
         return None
 
+    @staticmethod
+    def script_exec(command):
+        """Execute a custom command."""
+        try:
+            output = subprocess.Popen(command, stdout=subprocess.PIPE,
+                                      shell=True).communicate()[0].strip()
+        except:
+            output = _("Error")
+            logging.error(_("Error running: {}").format(command))
+
+        return output.decode('utf-8') if output else _("(no output)")
+
+
 class CPUSensor(BaseSensor):
     name = 'cpu\d*'
     desc = _('Average CPU usage')
@@ -335,11 +339,11 @@ class CPUSensor(BaseSensor):
                 nber = 0
             else:
                 nber = int(sensor[3:]) if len(sensor) > 3 else 999
-                
+
             if nber >= ps.NUM_CPUS:
-                print (sensor)
-                print (ps.NUM_CPUS)
-                print (len(sensor))
+                print(sensor)
+                print(ps.NUM_CPUS)
+                print(len(sensor))
                 raise ISMError(_("Invalid number of CPUs."))
 
             return True
@@ -365,33 +369,40 @@ class CPUSensor(BaseSensor):
 
         return r
 
+
 class MemSensor(BaseSensor):
     name = 'mem'
     desc = _('Physical memory in use.')
 
     def get_value(self, sensor_data):
-       return '{:02.0f}%'.format(self._fetch_mem())
+        return '{:02.0f}%'.format(self._fetch_mem())
 
     def _fetch_mem(self):
         """It gets the total memory info and return the used in percent."""
-        with open('/proc/meminfo') as meminfo:
-            total = SensorManager.digit_regex.findall(meminfo.readline()).pop()
-            release = re.split('\.', platform.release())
-            major_version = int(release[0])
-            minor_version = int(release[1])
-            if (minor_version >= 16 and major_version >= 3):
-                meminfo.readline()
-                available = SensorManager.digit_regex.findall(
-                    meminfo.readline()).pop()
-                return 100 - 100 * int(available) / float(total)
-            else:
-                free = SensorManager.digit_regex.findall(
-                    meminfo.readline()).pop()
-                meminfo.readline()
-                cached = SensorManager.digit_regex.findall(
-                    meminfo.readline()).pop()
-                free = int(free) + int(cached)
-                return 100 - 100 * free / float(total)
+
+        def grep(pattern, word_list):
+            expr = re.compile(pattern)
+            arr = [elem for elem in word_list if expr.match(elem)]
+            return arr[0]
+
+        with open('/proc/meminfo') as meminfofile:
+            meminfo = meminfofile.readlines()
+
+        total = SensorManager.digit_regex.findall(grep("MemTotal", meminfo))[0]
+        release = re.split('\.', platform.release())
+        major_version = int(release[0])
+        minor_version = int(re.search(r'\d+', release[1]).group())
+        if (minor_version >= 16 and major_version == 3) or (major_version > 3):
+            available = SensorManager.digit_regex.findall(
+                grep("MemAvailable", meminfo))[0]
+            return 100 - 100 * int(available) / float(total)
+        else:
+            free = SensorManager.digit_regex.findall(
+                grep("MemFree", meminfo))[0]
+            cached = SensorManager.digit_regex.findall(
+                grep("Cached", meminfo))[0]
+            free = int(free) + int(cached)
+            return 100 - 100 * free / float(total)
 
 
 class NetSensor(BaseSensor):
@@ -418,6 +429,7 @@ class NetSensor(BaseSensor):
         current[1] /= mgr.get_interval()
         return '↓{}/s ↑{}/s'.format(bytes_to_human(current[0]),
                                     bytes_to_human(current[1]))
+
 
 class BatSensor(BaseSensor):
     name = 'bat\d*'
@@ -452,7 +464,6 @@ class BatSensor(BaseSensor):
         return capacity
 
 
-
 class FSSensor(BaseSensor):
     name = 'fs//.+'
     desc = _('Available space in file system.')
@@ -483,9 +494,8 @@ class FSSensor(BaseSensor):
 
         for unit in B_UNITS:
             if bytes_ < 1024:
-                return "{} {}".format(round(bytes_,2), unit)
+                return "{} {}".format(round(bytes_, 2), unit)
             bytes_ /= 1024
-
 
 
 class SwapSensor(BaseSensor):
@@ -515,6 +525,90 @@ class SwapSensor(BaseSensor):
         except IOError:
             return "N/A"
 
+
+class UporDownSensor(BaseSensor):
+    name = 'upordown'
+    desc = _("Display if your internet connection is up or down")
+
+    command = 'if wget -qO /dev/null google.com > /dev/null; then echo "☺"; else echo "☹"; fi'
+
+    current_val = ""
+    lasttime = 0  # we refresh this every 10 seconds
+
+    def get_value(self, sensor):
+        if self.current_val == "" or self.lasttime == 0 or (time.time() - self.lasttime) > 10:
+            self.current_val = self.script_exec(self.command)
+            self.lasttime = time.time()
+
+        return self.current_val
+
+
+class PublicIPSensor(BaseSensor):
+    name = 'publicip'
+    desc = _("Display your public IP address")
+
+    command = 'curl ipv4.icanhazip.com'
+
+    current_ip = ""
+    lasttime = 0  # we refresh this every 10 minutes
+
+    def get_value(self, sensor):
+        if self.current_ip == "" or self.lasttime == 0 or (time.time() - self.lasttime) > 600:
+            self.current_ip = self.script_exec(self.command)
+            self.lasttime = time.time()
+
+        return self.current_ip
+
+
+class CPUTemp(BaseSensor):
+    """Return CPU temperature expressed in Celsius
+    """
+
+    name = 'cputemp'
+    desc = _('CPU temperature')
+
+    def get_value(self, sensor):
+        # degrees symbol is unicode U+00B0
+        return "{:02.0f}\u00B0C".format(self._fetch_cputemp())
+
+    def _fetch_cputemp(self):
+        # http://www.mjmwired.net/kernel/Documentation/hwmon/sysfs-interface
+
+        # first try the following sys file
+        # /sys/class/thermal/thermal_zone0/temp
+
+        # if that fails try various hwmon files
+
+        cat = lambda file: open(file, 'r').read().strip()
+        ret = None
+
+        zone = "/sys/class/thermal/thermal_zone0/"
+        try:
+            ret = int(cat(os.path.join(zone, 'temp'))) / 1000
+        except:
+            pass
+
+        if ret:
+            return ret
+
+        base = '/sys/class/hwmon/'
+        ls = sorted(os.listdir(base))
+        assert ls, "%r is empty" % base
+        for hwmon in ls:
+            hwmon = os.path.join(base, hwmon)
+
+            try:
+                ret = int(cat(os.path.join(hwmon, 'temp1_input'))) / 1000
+                break
+            except:
+                pass
+
+                # if fahrenheit:
+                #    digits = [(x * 1.8) + 32 for x in digits]
+
+        return ret
+
+
 class StatusFetcher(Thread):
     """It recollects the info about the sensors."""
 
@@ -526,11 +620,9 @@ class StatusFetcher(Thread):
     def fetch(self):
         return self.mgr.get_results()
 
-
     def run(self):
         """It is the main loop."""
         while self._parent.alive.isSet():
             data = self.fetch()
             self._parent.update(data)
             time.sleep(self.mgr.get_interval())
-            

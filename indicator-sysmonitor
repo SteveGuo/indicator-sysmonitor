@@ -24,7 +24,6 @@ from preferences import Preferences
 from preferences import VERSION
 from sensors import SensorManager
 
-
 textdomain("indicator-sysmonitor")
 bindtextdomain("indicator-sysmonitor", "./lang")
 
@@ -40,6 +39,8 @@ HELP_MSG = """<span underline="single" size="x-large">{title}</span>
 • mem: {mem_desc}
 • bat<i>%d</i>: {bat_desc}
 • net: {net_desc}
+• upordown: {upordown_desc}
+• publicip: {publicip_desc}
 
 {compose}
 • fs//<i>mount-point</i> : {fs_desc}
@@ -56,13 +57,17 @@ CPU {{cpu}} | MEM {{mem}} | root {{fs///}}
     bat_desc=_("It shows the available battery which id is %d."),
     net_desc=_("It shows the amount of data you are downloading and uploading \
     through your network."),
+    upordown_desc=_("It shows whether your internet connection is up or down \
+     - the sensor is refreshed every 10 seconds."),
+    publicip_desc=_("It shows your public IP address \
+     - the sensor is refreshed every 10 minutes."),
     compose=_("Also there are the following sensors that are composed with \
     two parts divided by two slashes."),
     fs_desc=_("Show available space in the file system."),
     example=_("Example:"))
 
-class IndicatorSysmonitor(object):
 
+class IndicatorSysmonitor(object):
     SENSORS_DISABLED = False
 
     def __init__(self):
@@ -131,11 +136,30 @@ class IndicatorSysmonitor(object):
         self.ind.set_property("label-guide", guide)
 
     def update(self, data):
+        # data is the dict of all sensors and their values
+        # { name, label }
+
+        # look through data and find out if there are any icons to be set
+
+
+        for sensor in data:
+            test_str = data[sensor].lower()
+            if "use_icon" in test_str:
+                path = data[sensor].split(":")[1]
+                print(path)
+                self.ind.set_icon_full(path, "")
+                # now strip the icon output from data so that it is not displayed
+
+                remaining = test_str.split("use_icon")[0].strip()
+                if not remaining:
+                    remaining = " "
+
+                data[sensor] = remaining
+
         label = self.sensor_mgr.get_label(data)
 
         self.ind.set_label(label, "")
         self.ind.set_title(label)
-        # print (label)
 
     def load_settings(self):
 
@@ -143,7 +167,7 @@ class IndicatorSysmonitor(object):
         self.sensor_mgr.initiate_fetcher(self)
         self.update_indicator_guide()
 
-    #@staticmethod
+    # @staticmethod
     def save_settings(self):
         self.sensor_mgr.save_settings()
 
@@ -174,8 +198,7 @@ class IndicatorSysmonitor(object):
             self._preferences_dialog.destroy()
 
         logging.info("Terminated")
-        self.alive.clear()  #DM: why bother with Event() ???
-
+        self.alive.clear()  # DM: why bother with Event() ???
 
         try:
             Gtk.main_quit()

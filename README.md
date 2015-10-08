@@ -1,27 +1,29 @@
-Indicator-SysMonitor
+Indicator-SysMonitor - v0.8.0 - development
 ===================
-A basic Application Indicator showing memory and cpu usage.
+An Application Indicator showing cpu temperature, memory, network speed, cpu usage, public IP address and internet connection status .
 
-Show cpu and memory usage and also various temperature sensors in the topbar; works with gnome-panel and Unity.
+Works with Unity, Xubuntu, Gnome-Shell + app-indicator extension together with any other desktop environments that support AppIndicators.
 
 Also offers the possibility to run your own command and display its output.
 
-Original Author: Alex Eftimie <alex@rosedu.org>
-https://launchpad.net/indicator-sysmonitor
+----
 
-Current fork maintainer: fossfreedom <foss.freedom@gmail.com>
+##Custom scripts
 
-v0.6.3: SteveGuo <steveguo@outlook.com>
-https://github.com/SteveGuo
+Create your own scripts (for example in bash).  Give the script execute permission (chmod +x scriptname)
+
+A script must output one line of text - e.g. using "echo" in bash
+
+The indicator can change the icon being displayed by recognising the output of a sensor "USE_ICON:full_path_to_.svg"
 
 ----
 
-Installation - v0.6.3 stable
+Installation:
 
-on Ubuntu and derivatives - manual installation
+On Ubuntu and derivatives - manual installation
 
 
-    sudo apt-get install python3-psutil git
+    sudo apt-get install python3-psutil, curl git
     git clone https://github.com/fossfreedom/indicator-sysmonitor.git
     cd indicator-sysmonitor
     sudo make install
@@ -40,8 +42,11 @@ To install via PPA:
     
     Search in the dash for "indicator-sysmonitor" to run
 
-Changelog
+Changelog:
  
+ - v0.8.0 - development - new sensor - cputemp, ability to use and change icons
+ - v0.7.1 - bug fix to allow non-ubuntu kernels to be used
+ - v0.7.0 - new sensors - publicip and upordown.
  - v0.6.3 - fixed the bug when display multiple CPU cores it always display the later ones as 0%
  - v0.6.2 - bug fix to stop crash for custom sensors
  - v0.6.1 - fix the debian packaging
@@ -52,3 +57,16 @@ Changelog
  - v0.4.5 - removed indicator icon since not needed
  - v0.4.4 - fix dependencies and corrected shown indicator icon
  - v0.4.3 - fork from original author
+ 
+Credits:
+ 
+ - v0.6.3 - SteveGuo <steveguo@outlook.com> https://github.com/SteveGuo
+
+----
+
+Original Author: Alex Eftimie <alex@rosedu.org>
+https://launchpad.net/indicator-sysmonitor
+
+Current fork maintainer: fossfreedom <foss.freedom@gmail.com>
+
+----
